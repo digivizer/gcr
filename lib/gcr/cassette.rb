@@ -75,22 +75,39 @@ class GCR::Cassette
   ensure
     stop_playing
   end
-
+  
   def start_recording
     GCR.stub.class.class_eval do
       alias_method :orig_request_response, :request_response
 
       def request_response(*args)
-        args.last[:return_op] = false
-        orig_request_response(*args).tap do |resp|
+        if args.last[:return_op] == true
+          # capture the operation
+          operation = orig_request_response(*args)
+
+	        # capture the response
+          args.last[:return_op] = false
+          resp = orig_request_response(*args)
+
           req = GCR::Request.from_proto(*args)
           if GCR.cassette.reqs.none? { |r, _| r == req }
             GCR.cassette.reqs << [req, GCR::Response.from_proto(resp)]
           end
-        end
+
+          # then return it
+          return operation
+	      else
+          orig_request_response(*args).tap do |resp|
+            req = GCR::Request.from_proto(*args)
+            if GCR.cassette.reqs.none? { |r, _| r == req }
+              GCR.cassette.reqs << [req, GCR::Response.from_proto(resp)]
+            end
+          end
+	      end
       end
     end
   end
+
 
   def stop_recording
     GCR.stub.class.class_eval do
