@@ -81,6 +81,7 @@ class GCR::Cassette
       alias_method :orig_request_response, :request_response
 
       def request_response(*args)
+        args.last[:return_op] = false
         orig_request_response(*args).tap do |resp|
           req = GCR::Request.from_proto(*args)
           if GCR.cassette.reqs.none? { |r, _| r == req }
@@ -107,7 +108,23 @@ class GCR::Cassette
       def request_response(*args)
         req = GCR::Request.from_proto(*args)
         GCR.cassette.reqs.each do |other_req, resp|
-          return resp.to_proto if req == other_req
+          if req == other_req
+
+            # check if our request wants an operation returned rather than the response
+            if args.last[:return_op] == true
+              # if so, collect the original operation
+              operation = orig_request_response(*args)
+
+              # hack the execute method to return the response we recorded
+              operation.define_singleton_method(:execute) { return resp.to_proto }
+
+              # then return it
+              return operation
+            else
+              # otherwise just return the response
+              return resp.to_proto
+            end
+          end
         end
         raise GCR::NoRecording
       end
