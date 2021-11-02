@@ -51,7 +51,7 @@ class GCR::Cassette
     File.open(@path, "w") do |f|
       f.write(JSON.pretty_generate(
         "version" => VERSION,
-        "reqs"    => reqs,
+        "reqs" => reqs,
       ))
     end
   end
@@ -75,19 +75,18 @@ class GCR::Cassette
   ensure
     stop_playing
   end
-  
+
   def start_recording
     GCR.stub.class.class_eval do
       alias_method :orig_request_response, :request_response
 
-      def request_response(*args)
-        if args.last[:return_op] == true
+      def request_response(*args, return_op: false, **kwargs)
+        if return_op
           # capture the operation
-          operation = orig_request_response(*args)
+          operation = orig_request_response(*args, return_op: return_op, **kwargs)
 
-	        # capture the response
-          args.last[:return_op] = false
-          resp = orig_request_response(*args)
+          # capture the response
+          resp = orig_request_response(*args, return_op: false, **kwargs)
 
           req = GCR::Request.from_proto(*args)
           if GCR.cassette.reqs.none? { |r, _| r == req }
@@ -95,19 +94,18 @@ class GCR::Cassette
           end
 
           # then return it
-          return operation
-	      else
-          orig_request_response(*args).tap do |resp|
+          operation
+        else
+          orig_request_response(*args, return_op: return_op, **kwargs).tap do |resp|
             req = GCR::Request.from_proto(*args)
             if GCR.cassette.reqs.none? { |r, _| r == req }
               GCR.cassette.reqs << [req, GCR::Response.from_proto(resp)]
             end
           end
-	      end
+        end
       end
     end
   end
-
 
   def stop_recording
     GCR.stub.class.class_eval do
@@ -122,15 +120,15 @@ class GCR::Cassette
     GCR.stub.class.class_eval do
       alias_method :orig_request_response, :request_response
 
-      def request_response(*args)
+      def request_response(*args, return_op: false, **kwargs)
         req = GCR::Request.from_proto(*args)
         GCR.cassette.reqs.each do |other_req, resp|
           if req == other_req
 
             # check if our request wants an operation returned rather than the response
-            if args.last[:return_op] == true
+            if return_op
               # if so, collect the original operation
-              operation = orig_request_response(*args)
+              operation = orig_request_response(*args, return_op: return_op, **kwargs)
 
               # hack the execute method to return the response we recorded
               operation.define_singleton_method(:execute) { return resp.to_proto }
