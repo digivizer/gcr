@@ -20,6 +20,7 @@ class GCR::Cassette
   def initialize(name)
     @path = File.join(GCR.cassette_dir, "#{name}.json")
     @reqs = []
+    FileUtils.mkdir_p(File.dirname(@path))
   end
 
   # Does this cassette exist?
