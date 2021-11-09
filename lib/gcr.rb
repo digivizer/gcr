@@ -47,6 +47,8 @@ module GCR
   # Returns nothing.
   def cassette_dir=(path)
     raise RunningError, "cannot configure GCR within #with_cassette block" if @running
+
+    FileUtils.mkdir_p(path) unless File.exist?(path)
     @cassette_dir = path
   end
 
