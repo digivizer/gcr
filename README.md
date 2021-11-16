@@ -19,6 +19,13 @@ test "MyController#index works" do
 end
 ```
 
+## Configuration
+
+To not save empty requests (for instance when error occur), set `save_empty_requests` as `false`.
+```ruby
+GCR.save_empty_requests = false
+```
+
 ## Tests
 
 To run tests:

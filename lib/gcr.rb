@@ -22,6 +22,24 @@ module GCR
     @ignored_fields ||= []
   end
 
+  # Save cassette when requests list is empty?
+  #
+  # Returns boolean
+  def save_empty_requests=(value)
+    @save_empty_requests = value
+  end
+
+  # Save cassette when requests list is empty?
+  #
+  # Returns boolean, `true` by default
+  def save_empty_requests
+    return true if @save_empty_requests.nil?
+
+    @save_empty_requests
+  end
+
+  alias save_empty_requests? save_empty_requests
+
   # Specify where GCR should store cassettes.
   #
   # path - The String path to a directory.

@@ -48,6 +48,8 @@ class GCR::Cassette
   #
   # Returns nothing.
   def save
+    return if reqs.empty? && !GCR.save_empty_requests?
+
     File.open(@path, "w") do |f|
       f.write(JSON.pretty_generate(
         "version" => VERSION,
