@@ -18,7 +18,7 @@ class GCR::Cassette
   #
   # Returns nothing.
   def initialize(name)
-    @path = File.join(GCR.cassette_dir, "#{name}.json")
+    @path = File.join(GCR.cassette_dir, "#{name}.json#{".zz" if GCR.compress}")
     @reqs = []
   end
 
@@ -33,7 +33,8 @@ class GCR::Cassette
   #
   # Returns nothing.
   def load
-    data = JSON.parse(File.read(@path))
+    json_data = @path.ends_with?(".zz") ? Zlib::Inflate.inflate(File.read(@path)) : File.read(@path)
+    data = JSON.parse(json_data)
 
     if data["version"] != VERSION
       raise "GCR cassette version #{data["version"]} not supported"
@@ -48,11 +49,14 @@ class GCR::Cassette
   #
   # Returns nothing.
   def save
-    File.open(@path, "w") do |f|
-      f.write(JSON.pretty_generate(
-        "version" => VERSION,
-        "reqs" => reqs,
-      ))
+    json_content = JSON.pretty_generate(
+      "version" => VERSION,
+      "reqs" => reqs
+    )
+    if GCR.compress
+      File.write(@path, Zlib::Deflate.deflate(json_content), encoding: "ascii-8bit")
+    else
+      File.write(@path, json_content)
     end
   end
 
@@ -82,11 +86,14 @@ class GCR::Cassette
 
       def request_response(*args, return_op: false, **kwargs)
         if return_op
-          # capture the operation
-          operation = orig_request_response(*args, return_op: return_op, **kwargs)
+          # captures the operation
+          operation = orig_request_response(*args, return_op: true, **kwargs)
 
-          # capture the response
+          # performs the operation (actual API call) and captures the response
           resp = orig_request_response(*args, return_op: false, **kwargs)
+
+          # prevents duplicate queries
+          operation.define_singleton_method(:execute) { resp }
 
           req = GCR::Request.from_proto(*args)
           if GCR.cassette.reqs.none? { |r, _| r == req }
@@ -131,7 +138,7 @@ class GCR::Cassette
               operation = orig_request_response(*args, return_op: return_op, **kwargs)
 
               # hack the execute method to return the response we recorded
-              operation.define_singleton_method(:execute) { return resp.to_proto }
+              operation.define_singleton_method(:execute) { resp.to_proto }
 
               # then return it
               return operation
@@ -141,7 +148,7 @@ class GCR::Cassette
             end
           end
         end
-        raise GCR::NoRecording
+        raise GCR::NoRecording.new(["Unrecorded request :", req.class_name, req.body].join("\n"))
       end
     end
   end
