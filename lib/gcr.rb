@@ -47,7 +47,7 @@ module GCR
   # Whether cassettes should be compressed to zz
   #
   # Returns a boolean
-  def compress
+  def compress?
     @compress ||= false
   end
 

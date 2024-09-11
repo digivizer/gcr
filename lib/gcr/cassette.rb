@@ -18,7 +18,7 @@ class GCR::Cassette
   #
   # Returns nothing.
   def initialize(name)
-    @path = File.join(GCR.cassette_dir, "#{name}.json#{".zz" if GCR.compress}")
+    @path = File.join(GCR.cassette_dir, "#{name}.json#{".zz" if GCR.compress?}")
     @reqs = []
   end
 
@@ -53,7 +53,7 @@ class GCR::Cassette
       "version" => VERSION,
       "reqs" => reqs
     )
-    if GCR.compress
+    if GCR.compress?
       File.write(@path, Zlib::Deflate.deflate(json_content), encoding: "ascii-8bit")
     else
       File.write(@path, json_content)
