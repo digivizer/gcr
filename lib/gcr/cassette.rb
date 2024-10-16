@@ -2,6 +2,7 @@ class GCR::Cassette
   VERSION = 2
 
   attr_reader :reqs
+  attr_accessor :reqs_calls_counts
 
   # Delete all recorded cassettes.
   #
@@ -20,6 +21,7 @@ class GCR::Cassette
   def initialize(name)
     @path = File.join(GCR.cassette_dir, "#{name}.json#{".zz" if GCR.compress?}")
     @reqs = []
+    @reqs_calls_counts = {}
   end
 
   # Does this cassette exist?
@@ -85,33 +87,32 @@ class GCR::Cassette
       alias_method :orig_request_response, :request_response
 
       def request_response(*args, return_op: false, **kwargs)
+        req = GCR::Request.from_proto(*args)
         if return_op
           # captures the operation
           operation = orig_request_response(*args, return_op: true, **kwargs)
 
-          # performs the operation (actual API call) and captures the response
-          resp = orig_request_response(*args, return_op: false, **kwargs)
-
-          # prevents duplicate queries
-          operation.define_singleton_method(:execute) { resp }
-
-          req = GCR::Request.from_proto(*args)
-          if GCR.cassette.reqs.none? { |r, _| r == req }
-            GCR.cassette.reqs << [req, GCR::Response.from_proto(resp)]
+          stub = self
+          operation.define_singleton_method(:execute) do
+            # performs the operation (actual API call) and captures the response
+            resp = stub.orig_request_response(*args, return_op: false, **kwargs)
+            GCR.cassette.save_interaction(req, resp)
+            resp
           end
 
           # then return it
           operation
         else
-          orig_request_response(*args, return_op: return_op, **kwargs).tap do |resp|
-            req = GCR::Request.from_proto(*args)
-            if GCR.cassette.reqs.none? { |r, _| r == req }
-              GCR.cassette.reqs << [req, GCR::Response.from_proto(resp)]
-            end
-          end
+          resp = orig_request_response(*args, return_op: return_op, **kwargs)
+          GCR.cassette.save_interaction(req, resp)
+          resp
         end
       end
     end
+  end
+
+  def save_interaction(req, resp)
+    GCR.cassette.reqs << [req, GCR::Response.from_proto(resp)]
   end
 
   def stop_recording
@@ -129,28 +130,53 @@ class GCR::Cassette
 
       def request_response(*args, return_op: false, **kwargs)
         req = GCR::Request.from_proto(*args)
-        GCR.cassette.reqs.each do |other_req, resp|
-          if req == other_req
 
-            # check if our request wants an operation returned rather than the response
-            if return_op
-              # if so, collect the original operation
-              operation = orig_request_response(*args, return_op: return_op, **kwargs)
+        # check if our request wants an operation returned rather than the response
+        if return_op
+          # if so, collect the original operation
+          operation = orig_request_response(*args, return_op: return_op, **kwargs)
 
-              # hack the execute method to return the response we recorded
-              operation.define_singleton_method(:execute) { resp.to_proto }
-
-              # then return it
-              return operation
-            else
-              # otherwise just return the response
-              return resp.to_proto
-            end
+          # hack the execute method to return the response we recorded
+          operation.define_singleton_method(:execute) do
+            GCR.cassette.read_recorded_response(req).to_proto
           end
+
+          # then return it
+          operation
+        else
+          # otherwise just return the response
+          GCR.cassette.read_recorded_response(req).to_proto
         end
-        raise GCR::NoRecording.new(["Unrecorded request :", req.class_name, req.body].join("\n"))
       end
     end
+  end
+
+  def read_recorded_response(req)
+    interactions = reqs.select { |persisted_req, _| req == persisted_req }
+    resp = interactions[calls_count(req)]&.last
+    iterate_calls_count(req)
+    if resp.nil?
+      raise_error(req, interactions: interactions)
+    end
+
+    resp
+  end
+
+  def calls_count(req)
+    reqs_calls_counts[req.to_h] ||= 0
+  end
+
+  def iterate_calls_count(req)
+    reqs_calls_counts[req.to_h] += 1
+  end
+
+  def raise_error(req, interactions:)
+    calls_count = calls_count(req)
+    raise GCR::NoRecording.new(["Unrecorded request :",
+      "called #{calls_count} #{(calls_count > 1) ? "times" : "time"}, (recorded #{interactions.size})",
+      req.class_name,
+      req.body]
+                                 .join("\n"))
   end
 
   def stop_playing
